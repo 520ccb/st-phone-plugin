@@ -1,19 +1,16 @@
-// 通用APP 手机插件 · 增强版 | Tavern Helper 专用
-// 世界书对齐 | AI回复渲染 | 状态栏 | 结果页原版按钮 | 面板内壁纸切换(直链/本地)
+// 通用APP 手机插件 · 修复版 | 绑定Tavern Helper「手机」按钮 + 右下角悬浮钮双保险
 (function () {
     if (window.__UniversalAppInit) { document.getElementById("uapp-fb")?.remove(); }
     window.__UniversalAppInit = true;
 
     const DEFAULT_BG = "linear-gradient(160deg,#1a2350 0%,#3a1f4d 55%,#0d0d18 100%)";
-    // 读取已保存壁纸（图床直链 或 本地base64）
     function getWallpaper() { try { return localStorage.getItem("uapp_wallpaper") || ""; } catch (e) { return ""; } }
     function setWallpaper(v) { try { v ? localStorage.setItem("uapp_wallpaper", v) : localStorage.removeItem("uapp_wallpaper"); } catch (e) {} }
     function bgStyle() { const w = getWallpaper(); return w ? `url('${w}') center/cover` : DEFAULT_BG; }
 
-    // ============ 功能配置（trigger 已按世界书关键词对齐） ============
     const APPS = {
         "reality": { title: "😈 现实扭曲", section: "🔨 万物修改", desc: "根据你输入的内容修改现实",
-            inputs: [{ key: "c", label: "扭曲内容", ph: "例如：让下雨天永远淋不湿我" }],
+            inputs: [{ key: "c", label: "扭曲内容", ph: "例如：让我成为本市首富" }],
             options: [{ key: "r", label: "作用范围", choices: ["个人", "特定地点", "城市", "国家", "全宇宙"] },
                       { key: "t", label: "持续时间", choices: ["10分钟", "1小时", "1天", "1周", "永久"] }],
             build: v => `打开【现实扭曲界面】。扭曲内容：${v.c||"未填写"}；范围：${v.r||"个人"}；持续：${v.t||"永久"}` },
@@ -27,7 +24,7 @@
             inputs: [{ key: "s", label: "能力名称", ph: "例如：读心术 / 瞬间移动" }],
             build: v => `打开【技能/超能力】界面。希望获得的能力：${v.s||"未填写"}` },
         "summon": { title: "🤞 万能召唤", section: "🔨 万物修改", desc: "从现实/历史/虚构作品中召唤物品或生物",
-            inputs: [{ key: "o", label: "召唤对象", ph: "例如：一把光剑 / 一只哥布林" }],
+            inputs: [{ key: "o", label: "召唤对象", ph: "例如：一辆兰博基尼 / 一只哥布林" }],
             build: v => `打开【万能召唤】界面。召唤对象：${v.o||"未填写"}` },
         "rpgchar": { title: "🎲 RPG角色界面", section: "🔨 万物修改", desc: "把信息量化为RPG数值分析角色",
             inputs: [{ key: "tg", label: "分析对象", ph: "输入角色名（留空为自己）" }],
@@ -59,15 +56,13 @@
             options: [{ key: "ty", label: "类型", choices: ["植入记忆", "抹去记忆"] }],
             build: v => `使用【记忆操作】功能。目标：${v.tg||"未填写"}；${v.ty||"植入记忆"}：${v.c||"未填写"}` },
         "info": { title: "🤖 信息操作", section: "🦾 万能操作", desc: "修改目标信息，现实随之改变",
-            inputs: [{ key: "tg", label: "目标", ph: "输入目标姓名" }, { key: "f", label: "修改项与新值", ph: "例如：年龄→改为25" }],
+            inputs: [{ key: "tg", label: "目标", ph: "输入目标姓名" }, { key: "f", label: "修改项与新值", ph: "例如：职业→改为总裁" }],
             build: v => `打开【目标信息界面】。目标：${v.tg||"未填写"}；修改内容：${v.f||"未填写"}` }
     };
 
-    // ============ 收藏存储 ============
     function getFavs() { try { return JSON.parse(localStorage.getItem("uapp_favs") || "[]"); } catch (e) { return []; } }
     function addFav(txt) { const a = getFavs(); a.unshift({ t: txt, d: new Date().toLocaleString() }); localStorage.setItem("uapp_favs", JSON.stringify(a.slice(0, 50))); }
 
-    // ============ 发送触发文本 ============
     function sendTrigger(text) {
         try { if (window.TavernHelper && window.TavernHelper.triggerSlash) { window.TavernHelper.triggerSlash(`/send ${text} | /trigger`); return true; } } catch (e) {}
         const ta = document.querySelector("#send_textarea"), btn = document.querySelector("#send_but");
@@ -80,28 +75,47 @@
         return t ? t.innerText : "";
     }
 
-    // ============ 悬浮按钮 ============
+    // ============ 右下角悬浮按钮（保底入口，务必可见） ============
     const fb = document.createElement("div");
     fb.id = "uapp-fb"; fb.innerText = "📱";
-    Object.assign(fb.style, { position: "fixed", bottom: "90px", right: "16px", zIndex: "99999",
-        width: "48px", height: "48px", lineHeight: "48px", textAlign: "center", fontSize: "24px",
-        background: "#4488ff", color: "#fff", borderRadius: "50%", boxShadow: "0 4px 12px #0004", cursor: "pointer", userSelect: "none" });
+    Object.assign(fb.style, { position: "fixed", bottom: "120px", right: "14px", zIndex: "2147483647",
+        width: "50px", height: "50px", lineHeight: "50px", textAlign: "center", fontSize: "26px",
+        background: "#4488ff", color: "#fff", borderRadius: "50%", boxShadow: "0 4px 14px #0006", cursor: "pointer", userSelect: "none" });
     document.body.appendChild(fb);
+    fb.onclick = openPanel;
 
+    // ============ 绑定 Tavern Helper 的「手机」按钮（多重保险） ============
+    function bindPhoneBtn() {
+        // 1) 官方API尝试
+        try { window.TavernHelper?.eventOnButton?.("手机", openPanel); } catch (e) {}
+        // 2) DOM扫描：把文字正好是「手机」的叶子元素绑上点击
+        document.querySelectorAll("button,div,span,a,li,.qr--button,.menu_button,.interactable").forEach(n => {
+            if (n.__uappBound) return;
+            const t = (n.textContent || "").trim();
+            if ((t === "手机" || t === "📱手机" || t === "手机📱") && n.children.length === 0) {
+                n.__uappBound = true;
+                n.style.cursor = "pointer";
+                n.addEventListener("click", (e) => { e.stopPropagation(); openPanel(); }, true);
+            }
+        });
+    }
+    bindPhoneBtn();
+    const bindMo = new MutationObserver(bindPhoneBtn);
+    bindMo.observe(document.body, { childList: true, subtree: true });
+
+    // ============ 面板 ============
     let panel = null, body = null, resultMode = false, mo = null;
-
     function statusBarHTML() {
         const n = new Date();
         return `<div style="display:flex;justify-content:space-between;padding:6px 14px;font-size:12px;color:#fff;background:rgba(0,0,0,.35);">
             <span>🔋100%</span><span>中国移动 📶</span><span id="uapp-clock">${String(n.getHours()).padStart(2,"0")}:${String(n.getMinutes()).padStart(2,"0")}</span></div>`;
     }
-
     function openPanel() {
         if (panel) { panel.remove(); panel = null; resultMode = false; if (mo) { mo.disconnect(); mo = null; } return; }
         panel = document.createElement("div");
-        Object.assign(panel.style, { position: "fixed", bottom: "150px", right: "16px", zIndex: "99998",
+        Object.assign(panel.style, { position: "fixed", bottom: "90px", right: "14px", zIndex: "2147483647",
             width: "336px", height: "560px", borderRadius: "22px", border: "6px solid #111",
-            boxShadow: "0 8px 28px #0007", overflow: "hidden", display: "flex", flexDirection: "column",
+            boxShadow: "0 8px 28px #0008", overflow: "hidden", display: "flex", flexDirection: "column",
             color: "#eee", fontFamily: "system-ui,sans-serif", background: bgStyle() });
         panel.innerHTML = `
             ${statusBarHTML()}
@@ -148,7 +162,6 @@
             body.appendChild(grid);
         }
     }
-
     function renderApp(id) {
         resultMode = false;
         const app = APPS[id], values = {};
@@ -179,8 +192,6 @@
         submit.onclick = () => { if (sendTrigger(app.build(values))) renderResult(true); };
         body.appendChild(submit);
     }
-
-    // 结果页 + 原版按钮
     function renderResult(waiting) {
         resultMode = true;
         panel.querySelector("#uapp-title").innerText = "📺 界面显示";
@@ -191,80 +202,42 @@
         const txt = getLastBotText();
         pre.innerText = waiting ? "⏳ 正在生成界面，请稍候…" : (txt || "暂无内容，先在功能里提交一次吧~");
         body.appendChild(pre);
-
-        // 原版风格按钮组
-        const bar = document.createElement("div");
-        bar.style.cssText = "display:grid;grid-template-columns:1fr 1fr;gap:8px;";
-        const mkBtn = (label, cb, color) => {
-            const b = document.createElement("div"); b.innerText = label;
-            b.style.cssText = `padding:10px;text-align:center;border-radius:10px;font-size:13px;cursor:pointer;background:${color||"rgba(40,48,64,.85)"};color:#fff;`;
-            b.onclick = cb; return b;
-        };
-        bar.appendChild(mkBtn("🏠 返回主界面", () => { sendTrigger("返回主界面"); renderHome(); }, "#4488ff"));
-        bar.appendChild(mkBtn("⭐ 收藏", () => { const t = document.getElementById("uapp-result").innerText; addFav(t); alert("已收藏本界面"); }));
-        bar.appendChild(mkBtn("💾 下载", () => {
-            const t = document.getElementById("uapp-result").innerText;
-            const a = document.createElement("a");
-            a.href = URL.createObjectURL(new Blob([t], { type: "text/plain" }));
-            a.download = "通用APP界面_" + Date.now() + ".txt"; a.click();
-        }));
-        bar.appendChild(mkBtn("📋 复制", () => { const t = document.getElementById("uapp-result").innerText; navigator.clipboard?.writeText(t); alert("已复制到剪贴板"); }));
+        const bar = document.createElement("div"); bar.style.cssText = "display:grid;grid-template-columns:1fr 1fr;gap:8px;";
+        const mk = (label, cb, color) => { const b = document.createElement("div"); b.innerText = label; b.style.cssText = `padding:10px;text-align:center;border-radius:10px;font-size:13px;cursor:pointer;background:${color||"rgba(40,48,64,.85)"};color:#fff;`; b.onclick = cb; return b; };
+        bar.appendChild(mk("🏠 返回主界面", () => { sendTrigger("返回主界面"); renderHome(); }, "#4488ff"));
+        bar.appendChild(mk("⭐ 收藏", () => { addFav(document.getElementById("uapp-result").innerText); alert("已收藏"); }));
+        bar.appendChild(mk("💾 下载", () => { const t = document.getElementById("uapp-result").innerText; const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([t], { type: "text/plain" })); a.download = "通用APP界面_" + Date.now() + ".txt"; a.click(); }));
+        bar.appendChild(mk("📋 复制", () => { navigator.clipboard?.writeText(document.getElementById("uapp-result").innerText); alert("已复制"); }));
         body.appendChild(bar);
-
         if (mo) mo.disconnect();
         const chat = document.querySelector("#chat");
-        if (chat) {
-            mo = new MutationObserver(() => { if (!resultMode) return; const p = document.getElementById("uapp-result"); const t = getLastBotText(); if (p && t) p.innerText = t; });
-            mo.observe(chat, { childList: true, subtree: true, characterData: true });
-        }
+        if (chat) { mo = new MutationObserver(() => { if (!resultMode) return; const p = document.getElementById("uapp-result"); const t = getLastBotText(); if (p && t) p.innerText = t; }); mo.observe(chat, { childList: true, subtree: true, characterData: true }); }
     }
-
-    // 设置页：壁纸切换
     function renderSettings() {
         resultMode = false;
         panel.querySelector("#uapp-title").innerText = "⚙️ 设置";
         panel.querySelector("#uapp-back").style.display = "block";
         body.innerHTML = `<div style="font-size:13px;color:#9cf;margin-bottom:8px;">🖼 壁纸设置</div>`;
-
-        // 图床直链
         const w1 = document.createElement("div"); w1.style.marginBottom = "10px";
         w1.innerHTML = `<div style="font-size:12px;color:#cdd;margin-bottom:4px;">方式一：粘贴图床直链</div>`;
-        const inp = document.createElement("input");
-        inp.placeholder = "https://图床/xxx.jpg";
+        const inp = document.createElement("input"); inp.placeholder = "https://图床/xxx.jpg";
         inp.value = getWallpaper().startsWith("data:") ? "" : getWallpaper();
         inp.style.cssText = "width:100%;box-sizing:border-box;padding:8px;background:rgba(20,24,34,.8);border:1px solid #2e3646;border-radius:8px;color:#eee;font-size:12px;";
         w1.appendChild(inp);
-        const applyLink = document.createElement("div"); applyLink.innerText = "应用链接壁纸";
-        applyLink.style.cssText = "margin-top:6px;padding:8px;text-align:center;background:#4488ff;border-radius:8px;font-size:13px;cursor:pointer;";
-        applyLink.onclick = () => { const v = inp.value.trim(); if (!v) return alert("请先粘贴链接"); setWallpaper(v); applyBg(); alert("已应用"); };
-        w1.appendChild(applyLink); body.appendChild(w1);
-
-        // 本地图片
-        const w2 = document.createElement("div"); w2.style.marginBottom = "10px";
+        const al = document.createElement("div"); al.innerText = "应用链接壁纸";
+        al.style.cssText = "margin-top:6px;padding:8px;text-align:center;background:#4488ff;border-radius:8px;font-size:13px;cursor:pointer;";
+        al.onclick = () => { const v = inp.value.trim(); if (!v) return alert("请先粘贴链接"); setWallpaper(v); applyBg(); alert("已应用"); };
+        w1.appendChild(al); body.appendChild(w1);
+        const w2 = document.createElement("div");
         w2.innerHTML = `<div style="font-size:12px;color:#cdd;margin:8px 0 4px;">方式二：选择本地图片</div>`;
-        const file = document.createElement("input"); file.type = "file"; file.accept = "image/*";
-        file.style.cssText = "width:100%;font-size:12px;color:#ccc;";
-        file.onchange = () => {
-            const f = file.files[0]; if (!f) return;
-            if (f.size > 2.5 * 1024 * 1024) return alert("图片过大（建议<2.5MB），请压缩后再试");
-            const r = new FileReader();
-            r.onload = () => { setWallpaper(r.result); applyBg(); alert("已应用本地壁纸"); };
-            r.readAsDataURL(f);
-        };
+        const file = document.createElement("input"); file.type = "file"; file.accept = "image/*"; file.style.cssText = "width:100%;font-size:12px;color:#ccc;";
+        file.onchange = () => { const f = file.files[0]; if (!f) return; if (f.size > 2.5 * 1024 * 1024) return alert("图片过大(<2.5MB)"); const r = new FileReader(); r.onload = () => { setWallpaper(r.result); applyBg(); alert("已应用"); }; r.readAsDataURL(f); };
         w2.appendChild(file); body.appendChild(w2);
-
-        // 恢复默认
         const reset = document.createElement("div"); reset.innerText = "↩️ 恢复默认壁纸";
         reset.style.cssText = "margin-top:14px;padding:10px;text-align:center;background:rgba(40,48,64,.85);border-radius:8px;font-size:13px;cursor:pointer;";
         reset.onclick = () => { setWallpaper(""); applyBg(); renderSettings(); };
         body.appendChild(reset);
-
-        const tip = document.createElement("div");
-        tip.innerText = "提示：本地图片会保存在浏览器本地(localStorage)，刷新不丢失；图床直链需保证链接长期有效。";
-        tip.style.cssText = "margin-top:14px;font-size:11px;color:#889;line-height:1.5;";
-        body.appendChild(tip);
     }
 
-    fb.onclick = openPanel;
-    console.log("✅ 通用APP手机插件（增强版）加载完成");
+    console.log("✅ 通用APP插件已加载：右下角📱 或点「手机」按钮均可打开");
 })();
