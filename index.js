@@ -1,243 +1,310 @@
-// 通用APP 手机插件 · 修复版 | 绑定Tavern Helper「手机」按钮 + 右下角悬浮钮双保险
+// 通用APP 手机插件 · iframe穿透版 | 适配酒馆助手(Tavern Helper)脚本沙箱
+// 关键：脚本运行在隔离iframe内，必须穿透到主窗口(window.parent/top)创建UI，
+//       并用官方 eventOn(getButtonEvent('手机'), fn) 绑定「手机」按钮。
 (function () {
-    if (window.__UniversalAppInit) { document.getElementById("uapp-fb")?.remove(); }
-    window.__UniversalAppInit = true;
+    "use strict";
 
-    const DEFAULT_BG = "linear-gradient(160deg,#1a2350 0%,#3a1f4d 55%,#0d0d18 100%)";
+    /* ============ 1. 解析主窗口/主文档（穿透 iframe 沙箱） ============ */
+    function resolveMainWin() {
+        var chain = [];
+        try { var w = window; while (w.parent && w.parent !== w) { w = w.parent; chain.push(w); } } catch (e) {}
+        var cands = [window].concat(chain);
+        try { if (window.top) cands.push(window.top); } catch (e) {}
+        for (var i = 0; i < cands.length; i++) {
+            try {
+                var d = cands[i].document;
+                if (d && (d.querySelector("#chat") || d.querySelector("#send_textarea"))) return cands[i];
+            } catch (e) {}
+        }
+        try { return window.top || window.parent || window; } catch (e) { return window.parent || window; }
+    }
+    var MW = resolveMainWin();       // 主窗口
+    var MD = MW.document;            // 主文档（SillyTavern 真实页面）
+
+    try {
+        var oldfb = MD.getElementById("uapp-fb"); if (oldfb) oldfb.remove();
+        var oldpn = MD.getElementById("uapp-panel"); if (oldpn) oldpn.remove();
+    } catch (e) {}
+
+    /* ============ 2. 配置 ============ */
+    var DEFAULT_BG = "linear-gradient(160deg,#1a2350 0%,#3a1f4d 55%,#0d0d18 100%)";
     function getWallpaper() { try { return localStorage.getItem("uapp_wallpaper") || ""; } catch (e) { return ""; } }
     function setWallpaper(v) { try { v ? localStorage.setItem("uapp_wallpaper", v) : localStorage.removeItem("uapp_wallpaper"); } catch (e) {} }
-    function bgStyle() { const w = getWallpaper(); return w ? `url('${w}') center/cover` : DEFAULT_BG; }
+    function bgStyle() { var w = getWallpaper(); return w ? "url('" + w + "') center/cover" : DEFAULT_BG; }
 
-    const APPS = {
+    var APPS = {
         "reality": { title: "😈 现实扭曲", section: "🔨 万物修改", desc: "根据你输入的内容修改现实",
             inputs: [{ key: "c", label: "扭曲内容", ph: "例如：让我成为本市首富" }],
             options: [{ key: "r", label: "作用范围", choices: ["个人", "特定地点", "城市", "国家", "全宇宙"] },
                       { key: "t", label: "持续时间", choices: ["10分钟", "1小时", "1天", "1周", "永久"] }],
-            build: v => `打开【现实扭曲界面】。扭曲内容：${v.c||"未填写"}；范围：${v.r||"个人"}；持续：${v.t||"永久"}` },
+            build: function (v) { return "打开【现实扭曲界面】。扭曲内容：" + (v.c || "未填写") + "；范围：" + (v.r || "个人") + "；持续：" + (v.t || "永久"); } },
         "relation": { title: "👰 关系修改", section: "🔨 万物修改", desc: "修改你与目标的社会/家庭/情感关系",
             inputs: [{ key: "tg", label: "目标全名", ph: "输入目标姓名" }, { key: "rl", label: "修改为", ph: "例如：青梅竹马 / 上司" }],
-            build: v => `打开【关系修改界面】。目标：${v.tg||"未填写"}；将关系修改为：${v.rl||"未填写"}` },
+            build: function (v) { return "打开【关系修改界面】。目标：" + (v.tg || "未填写") + "；将关系修改为：" + (v.rl || "未填写"); } },
         "identity": { title: "🥼 身份编辑", section: "🔨 万物修改", desc: "变更身份与职业，编辑个人资料",
             inputs: [{ key: "n", label: "身份/姓名", ph: "输入新身份" }, { key: "j", label: "职业", ph: "输入新职业" }],
-            build: v => `打开【身份编辑界面】。身份：${v.n||"未变"}；职业：${v.j||"未变"}` },
+            build: function (v) { return "打开【身份编辑界面】。身份：" + (v.n || "未变") + "；职业：" + (v.j || "未变"); } },
         "skill": { title: "🔮 技能/超能力", section: "🔨 万物修改", desc: "获得指定的技能或超能力",
             inputs: [{ key: "s", label: "能力名称", ph: "例如：读心术 / 瞬间移动" }],
-            build: v => `打开【技能/超能力】界面。希望获得的能力：${v.s||"未填写"}` },
+            build: function (v) { return "打开【技能/超能力】界面。希望获得的能力：" + (v.s || "未填写"); } },
         "summon": { title: "🤞 万能召唤", section: "🔨 万物修改", desc: "从现实/历史/虚构作品中召唤物品或生物",
             inputs: [{ key: "o", label: "召唤对象", ph: "例如：一辆兰博基尼 / 一只哥布林" }],
-            build: v => `打开【万能召唤】界面。召唤对象：${v.o||"未填写"}` },
+            build: function (v) { return "打开【万能召唤】界面。召唤对象：" + (v.o || "未填写"); } },
         "rpgchar": { title: "🎲 RPG角色界面", section: "🔨 万物修改", desc: "把信息量化为RPG数值分析角色",
             inputs: [{ key: "tg", label: "分析对象", ph: "输入角色名（留空为自己）" }],
-            build: v => `打开【RPG角色界面】。分析对象：${v.tg||"我自己"}` },
+            build: function (v) { return "打开【RPG角色界面】。分析对象：" + (v.tg || "我自己"); } },
         "rpgteam": { title: "🎲 RPG队伍界面", section: "🔨 万物修改", desc: "查看自己或敌方队伍构成",
             options: [{ key: "sd", label: "查看", choices: ["我方队伍", "敌方队伍"] }],
-            build: v => `打开【RPG界面】的队伍界面。查看：${v.sd||"我方队伍"}` },
+            build: function (v) { return "打开【RPG界面】的队伍界面。查看：" + (v.sd || "我方队伍"); } },
         "innerworld": { title: "🔒 生成里世界", section: "🔨 万物修改", desc: "生成主题里世界并拉入他人",
             inputs: [{ key: "th", label: "主题", ph: "例如：末日废土 / 校园" }, { key: "w", label: "拉入对象", ph: "输入目标（可留空）" }],
-            build: v => `使用【生成里世界】功能。主题：${v.th||"未填写"}；拉入对象：${v.w||"无"}` },
+            build: function (v) { return "使用【生成里世界】功能。主题：" + (v.th || "未填写") + "；拉入对象：" + (v.w || "无"); } },
         "imaginary": { title: "📥 虚数空间", section: "🔨 万物修改", desc: "进入你掌控一切的独立宇宙",
             inputs: [{ key: "w", label: "一同带入", ph: "输入目标（可留空）" }],
-            build: v => `打开【虚数空间界面】。进入虚数空间；带入对象：${v.w||"无"}` },
+            build: function (v) { return "打开【虚数空间界面】。进入虚数空间；带入对象：" + (v.w || "无"); } },
         "time": { title: "⏲ 时间操作", section: "🦾 万能操作", desc: "操纵时间：流速/冻结/旅行/倒流",
             options: [{ key: "a", label: "操作", choices: ["加速流速", "冻结时间", "恢复时间", "时间旅行", "时间倒流"] }],
             inputs: [{ key: "d", label: "补充说明", ph: "例如：倒流1小时 / 前往2000年" }],
-            build: v => `打开【时间操作页面】。操作：${v.a||"冻结时间"}；说明：${v.d||"无"}` },
+            build: function (v) { return "打开【时间操作页面】。操作：" + (v.a || "冻结时间") + "；说明：" + (v.d || "无"); } },
         "teleport": { title: "🚐 传送服务", section: "🦾 万能操作", desc: "将你和目标传送至任意地点",
             inputs: [{ key: "tg", label: "传送目标", ph: "输入目标（留空为自己）" }, { key: "p", label: "目的地", ph: "输入地点" }],
-            build: v => `打开【传送服务界面】。传送目标：${v.tg||"我自己"}；目的地：${v.p||"未填写"}` },
+            build: function (v) { return "打开【传送服务界面】。传送目标：" + (v.tg || "我自己") + "；目的地：" + (v.p || "未填写"); } },
         "camera": { title: "📸 万能摄像头", section: "🦾 万能操作", desc: "在任意地点生成不可见的摄像头",
             inputs: [{ key: "p", label: "安放地点", ph: "输入地点" }, { key: "tg", label: "监控目标", ph: "输入目标" }],
-            build: v => `打开【万能摄像头界面】。安放地点：${v.p||"未填写"}；监控目标：${v.tg||"未填写"}` },
+            build: function (v) { return "打开【万能摄像头界面】。安放地点：" + (v.p || "未填写") + "；监控目标：" + (v.tg || "未填写"); } },
         "invisible": { title: "👓 隐身模式", section: "🦾 万能操作", desc: "以多种方式隐于无形",
             options: [{ key: "m", label: "隐身方式", choices: ["存在感抹除", "气息遮断", "视觉盲区", "多维隐形", "因果屏障"] }],
-            build: v => `打开【隐身模式页面】。开启方式：${v.m||"存在感抹除"}` },
+            build: function (v) { return "打开【隐身模式页面】。开启方式：" + (v.m || "存在感抹除"); } },
         "memory": { title: "🎞 记忆操作", section: "🦾 万能操作", desc: "植入虚假记忆或抹去记忆",
             inputs: [{ key: "tg", label: "目标", ph: "输入目标姓名" }, { key: "c", label: "记忆内容", ph: "植入/抹去的记忆" }],
             options: [{ key: "ty", label: "类型", choices: ["植入记忆", "抹去记忆"] }],
-            build: v => `使用【记忆操作】功能。目标：${v.tg||"未填写"}；${v.ty||"植入记忆"}：${v.c||"未填写"}` },
+            build: function (v) { return "使用【记忆操作】功能。目标：" + (v.tg || "未填写") + "；" + (v.ty || "植入记忆") + "：" + (v.c || "未填写"); } },
         "info": { title: "🤖 信息操作", section: "🦾 万能操作", desc: "修改目标信息，现实随之改变",
             inputs: [{ key: "tg", label: "目标", ph: "输入目标姓名" }, { key: "f", label: "修改项与新值", ph: "例如：职业→改为总裁" }],
-            build: v => `打开【目标信息界面】。目标：${v.tg||"未填写"}；修改内容：${v.f||"未填写"}` }
+            build: function (v) { return "打开【目标信息界面】。目标：" + (v.tg || "未填写") + "；修改内容：" + (v.f || "未填写"); } }
     };
 
     function getFavs() { try { return JSON.parse(localStorage.getItem("uapp_favs") || "[]"); } catch (e) { return []; } }
-    function addFav(txt) { const a = getFavs(); a.unshift({ t: txt, d: new Date().toLocaleString() }); localStorage.setItem("uapp_favs", JSON.stringify(a.slice(0, 50))); }
+    function addFav(txt) { var a = getFavs(); a.unshift({ t: txt, d: new Date().toLocaleString() }); try { localStorage.setItem("uapp_favs", JSON.stringify(a.slice(0, 50))); } catch (e) {} }
 
+    /* ============ 3. 发送触发文本（在主文档里操作输入框） ============ */
     function sendTrigger(text) {
-        try { if (window.TavernHelper && window.TavernHelper.triggerSlash) { window.TavernHelper.triggerSlash(`/send ${text} | /trigger`); return true; } } catch (e) {}
-        const ta = document.querySelector("#send_textarea"), btn = document.querySelector("#send_but");
-        if (ta) { ta.value = text; ta.dispatchEvent(new Event("input", { bubbles: true })); if (btn) btn.click(); return true; }
-        alert("未找到输入框：" + text); return false;
+        var ta = MD.querySelector("#send_textarea");
+        var btn = MD.querySelector("#send_but");
+        if (ta) {
+            ta.value = text;
+            try { ta.dispatchEvent(new MW.Event("input", { bubbles: true })); } catch (e) { ta.dispatchEvent(new Event("input", { bubbles: true })); }
+            if (btn) { btn.click(); return true; }
+        }
+        try {
+            var ts = window.triggerSlash || (window.TavernHelper && window.TavernHelper.triggerSlash) || (MW.triggerSlash);
+            if (ts) { ts("/send " + text + " || /trigger"); return true; }
+        } catch (e) {}
+        try { MW.alert("未找到输入框：" + text); } catch (e) {}
+        return false;
     }
     function getLastBotText() {
-        const all = [...document.querySelectorAll("#chat .mes")].filter(m => m.getAttribute("is_user") === "false");
-        const last = all[all.length - 1], t = last && last.querySelector(".mes_text");
+        var all = [].slice.call(MD.querySelectorAll("#chat .mes")).filter(function (m) { return m.getAttribute("is_user") === "false"; });
+        var last = all[all.length - 1];
+        var t = last && last.querySelector(".mes_text");
         return t ? t.innerText : "";
     }
 
-    // ============ 右下角悬浮按钮（保底入口，务必可见） ============
-    const fb = document.createElement("div");
+    /* ============ 4. 右下角悬浮按钮（挂到主文档，保底入口） ============ */
+    var fb = MD.createElement("div");
     fb.id = "uapp-fb"; fb.innerText = "📱";
-    Object.assign(fb.style, { position: "fixed", bottom: "120px", right: "14px", zIndex: "2147483647",
-        width: "50px", height: "50px", lineHeight: "50px", textAlign: "center", fontSize: "26px",
-        background: "#4488ff", color: "#fff", borderRadius: "50%", boxShadow: "0 4px 14px #0006", cursor: "pointer", userSelect: "none" });
-    document.body.appendChild(fb);
-    fb.onclick = openPanel;
+    fb.style.cssText = "position:fixed;bottom:120px;right:14px;z-index:2147483647;" +
+        "width:52px;height:52px;line-height:52px;text-align:center;font-size:26px;" +
+        "background:#4488ff;color:#fff;border-radius:50%;box-shadow:0 4px 14px rgba(0,0,0,.5);cursor:pointer;user-select:none;";
+    MD.body.appendChild(fb);
+    fb.addEventListener("click", function () { togglePanel(); });
 
-    // ============ 绑定 Tavern Helper 的「手机」按钮（多重保险） ============
-    function bindPhoneBtn() {
-        // 1) 官方API尝试
-        try { window.TavernHelper?.eventOnButton?.("手机", openPanel); } catch (e) {}
-        // 2) DOM扫描：把文字正好是「手机」的叶子元素绑上点击
-        document.querySelectorAll("button,div,span,a,li,.qr--button,.menu_button,.interactable").forEach(n => {
-            if (n.__uappBound) return;
-            const t = (n.textContent || "").trim();
-            if ((t === "手机" || t === "📱手机" || t === "手机📱") && n.children.length === 0) {
-                n.__uappBound = true;
-                n.style.cursor = "pointer";
-                n.addEventListener("click", (e) => { e.stopPropagation(); openPanel(); }, true);
+    /* ============ 5. 官方 API 绑定「手机」按钮 ============ */
+    (function bindOfficialButton() {
+        var _eventOn = window.eventOn || (window.TavernHelper && window.TavernHelper.eventOn);
+        var _getButtonEvent = window.getButtonEvent || (window.TavernHelper && window.TavernHelper.getButtonEvent);
+        var _eventOnButton = window.eventOnButton || (window.TavernHelper && window.TavernHelper.eventOnButton);
+        try {
+            if (_eventOn && _getButtonEvent) { _eventOn(_getButtonEvent("手机"), function () { togglePanel(); }); }
+            else if (_eventOnButton) { _eventOnButton("手机", function () { togglePanel(); }); }
+        } catch (e) {}
+    })();
+
+    function bindDomButton() {
+        try {
+            var nodes = MD.querySelectorAll("button,div,span,a,li,.qr--button,.menu_button,.interactable");
+            for (var i = 0; i < nodes.length; i++) {
+                var n = nodes[i];
+                if (n.__uappBound) continue;
+                var t = (n.textContent || "").trim();
+                if ((t === "手机" || t === "📱手机" || t === "手机📱") && n.children.length === 0) {
+                    n.__uappBound = true; n.style.cursor = "pointer";
+                    n.addEventListener("click", function (e) { e.stopPropagation(); togglePanel(); }, true);
+                }
             }
-        });
+        } catch (e) {}
     }
-    bindPhoneBtn();
-    const bindMo = new MutationObserver(bindPhoneBtn);
-    bindMo.observe(document.body, { childList: true, subtree: true });
+    bindDomButton();
+    try { var bindMo = new MW.MutationObserver(bindDomButton); bindMo.observe(MD.body, { childList: true, subtree: true }); } catch (e) {}
 
-    // ============ 面板 ============
-    let panel = null, body = null, resultMode = false, mo = null;
+    /* ============ 6. 面板 ============ */
+    var panel = null, body = null, resultMode = false, mo = null, clockTimer = null;
+
     function statusBarHTML() {
-        const n = new Date();
-        return `<div style="display:flex;justify-content:space-between;padding:6px 14px;font-size:12px;color:#fff;background:rgba(0,0,0,.35);">
-            <span>🔋100%</span><span>中国移动 📶</span><span id="uapp-clock">${String(n.getHours()).padStart(2,"0")}:${String(n.getMinutes()).padStart(2,"0")}</span></div>`;
+        var n = new Date();
+        var hh = ("0" + n.getHours()).slice(-2), mm = ("0" + n.getMinutes()).slice(-2);
+        return '<div style="display:flex;justify-content:space-between;padding:6px 14px;font-size:12px;color:#fff;background:rgba(0,0,0,.35);">' +
+            '<span>🔋100%</span><span>中国移动 📶</span><span id="uapp-clock">' + hh + ":" + mm + '</span></div>';
     }
-    function openPanel() {
-        if (panel) { panel.remove(); panel = null; resultMode = false; if (mo) { mo.disconnect(); mo = null; } return; }
-        panel = document.createElement("div");
-        Object.assign(panel.style, { position: "fixed", bottom: "90px", right: "14px", zIndex: "2147483647",
-            width: "336px", height: "560px", borderRadius: "22px", border: "6px solid #111",
-            boxShadow: "0 8px 28px #0008", overflow: "hidden", display: "flex", flexDirection: "column",
-            color: "#eee", fontFamily: "system-ui,sans-serif", background: bgStyle() });
-        panel.innerHTML = `
-            ${statusBarHTML()}
-            <div style="padding:10px;background:rgba(0,0,0,.4);text-align:center;font-weight:bold;position:relative;">
-                <span id="uapp-back" style="position:absolute;left:12px;top:10px;cursor:pointer;display:none;font-size:13px;">‹ 返回</span>
-                <span id="uapp-title">📲 通用APP</span>
-                <span id="uapp-set" style="position:absolute;right:38px;top:9px;cursor:pointer;font-size:15px;">⚙️</span>
-                <span id="uapp-close" style="position:absolute;right:12px;top:8px;cursor:pointer;font-size:18px;">×</span>
-            </div>
-            <div id="uapp-body" style="flex:1;overflow-y:auto;padding:10px 12px;"></div>`;
-        document.body.appendChild(panel);
+
+    function togglePanel() {
+        if (panel) { closePanel(); return; }
+        panel = MD.createElement("div");
+        panel.id = "uapp-panel";
+        panel.style.cssText = "position:fixed;bottom:90px;right:14px;z-index:2147483647;" +
+            "width:336px;max-width:92vw;height:560px;max-height:80vh;border-radius:22px;border:6px solid #111;" +
+            "box-shadow:0 8px 28px rgba(0,0,0,.55);overflow:hidden;display:flex;flex-direction:column;" +
+            "color:#eee;font-family:system-ui,sans-serif;background:" + bgStyle() + ";";
+        panel.innerHTML = statusBarHTML() +
+            '<div style="padding:10px;background:rgba(0,0,0,.4);text-align:center;font-weight:bold;position:relative;">' +
+            '<span id="uapp-back" style="position:absolute;left:12px;top:10px;cursor:pointer;display:none;font-size:13px;">‹ 返回</span>' +
+            '<span id="uapp-title">📲 通用APP</span>' +
+            '<span id="uapp-set" style="position:absolute;right:38px;top:9px;cursor:pointer;font-size:15px;">⚙️</span>' +
+            '<span id="uapp-close" style="position:absolute;right:12px;top:8px;cursor:pointer;font-size:18px;">×</span>' +
+            '</div><div id="uapp-body" style="flex:1;overflow-y:auto;padding:10px 12px;"></div>';
+        MD.body.appendChild(panel);
         body = panel.querySelector("#uapp-body");
-        panel.querySelector("#uapp-close").onclick = openPanel;
-        panel.querySelector("#uapp-back").onclick = renderHome;
-        panel.querySelector("#uapp-set").onclick = renderSettings;
-        setInterval(() => { const c = document.getElementById("uapp-clock"); if (c) { const n = new Date(); c.innerText = String(n.getHours()).padStart(2, "0") + ":" + String(n.getMinutes()).padStart(2, "0"); } }, 10000);
+        panel.querySelector("#uapp-close").addEventListener("click", closePanel);
+        panel.querySelector("#uapp-back").addEventListener("click", renderHome);
+        panel.querySelector("#uapp-set").addEventListener("click", renderSettings);
+        clockTimer = MW.setInterval(function () {
+            var c = MD.getElementById("uapp-clock");
+            if (c) { var n = new Date(); c.innerText = ("0" + n.getHours()).slice(-2) + ":" + ("0" + n.getMinutes()).slice(-2); }
+        }, 10000);
         renderHome();
     }
+    function closePanel() {
+        if (mo) { mo.disconnect(); mo = null; }
+        if (clockTimer) { MW.clearInterval(clockTimer); clockTimer = null; }
+        if (panel) { panel.remove(); panel = null; }
+        resultMode = false;
+    }
     function applyBg() { if (panel) panel.style.background = bgStyle(); }
+
+    function mkDiv(css, text) { var d = MD.createElement("div"); if (css) d.style.cssText = css; if (text != null) d.innerText = text; return d; }
 
     function renderHome() {
         resultMode = false;
         panel.querySelector("#uapp-title").innerText = "📲 通用APP";
         panel.querySelector("#uapp-back").style.display = "none";
         body.innerHTML = "";
-        const view = document.createElement("div");
-        view.innerText = "📺 查看AI生成的最新界面";
-        view.style.cssText = "margin-bottom:10px;padding:9px;background:rgba(74,136,255,.85);border-radius:10px;text-align:center;font-size:13px;cursor:pointer;font-weight:bold;";
-        view.onclick = () => renderResult(false);
+        var view = mkDiv("margin-bottom:10px;padding:9px;background:rgba(74,136,255,.9);border-radius:10px;text-align:center;font-size:13px;cursor:pointer;font-weight:bold;", "📺 查看AI生成的最新界面");
+        view.addEventListener("click", function () { renderResult(false); });
         body.appendChild(view);
-        const sections = {};
-        for (const [id, app] of Object.entries(APPS)) (sections[app.section] = sections[app.section] || []).push([id, app]);
-        for (const [sec, list] of Object.entries(sections)) {
-            const t = document.createElement("div"); t.innerText = sec;
-            t.style.cssText = "margin:8px 0 6px;font-size:14px;color:#9cc4ff;border-bottom:1px solid rgba(255,255,255,.15);padding-bottom:4px;";
-            body.appendChild(t);
-            const grid = document.createElement("div");
-            grid.style.cssText = "display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px;";
-            list.forEach(([id, app]) => {
-                const b = document.createElement("div"); b.innerText = app.title;
-                b.style.cssText = "background:rgba(30,36,48,.75);border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:10px 6px;font-size:13px;text-align:center;cursor:pointer;";
-                b.onclick = () => renderApp(id); grid.appendChild(b);
+        var sections = {};
+        for (var id in APPS) { var app = APPS[id]; (sections[app.section] = sections[app.section] || []).push([id, app]); }
+        for (var sec in sections) {
+            body.appendChild(mkDiv("margin:8px 0 6px;font-size:14px;color:#9cc4ff;border-bottom:1px solid rgba(255,255,255,.15);padding-bottom:4px;", sec));
+            var grid = mkDiv("display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px;");
+            sections[sec].forEach(function (pair) {
+                var b = mkDiv("background:rgba(30,36,48,.78);border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:10px 6px;font-size:13px;text-align:center;cursor:pointer;", pair[1].title);
+                b.addEventListener("click", function () { renderApp(pair[0]); });
+                grid.appendChild(b);
             });
             body.appendChild(grid);
         }
     }
+
     function renderApp(id) {
         resultMode = false;
-        const app = APPS[id], values = {};
+        var app = APPS[id], values = {};
         panel.querySelector("#uapp-title").innerText = app.title;
         panel.querySelector("#uapp-back").style.display = "block";
-        body.innerHTML = `<div style="color:#cdd;font-size:12px;margin-bottom:12px;">${app.desc}</div>`;
-        (app.inputs || []).forEach(inp => {
-            const w = document.createElement("div"); w.style.marginBottom = "12px";
-            w.innerHTML = `<div style="font-size:12px;color:#9cf;margin-bottom:4px;">${inp.label}</div>`;
-            const el = document.createElement("input"); el.placeholder = inp.ph || "";
-            el.style.cssText = "width:100%;box-sizing:border-box;padding:8px;background:rgba(20,24,34,.8);border:1px solid #2e3646;border-radius:8px;color:#eee;font-size:13px;";
-            el.oninput = () => values[inp.key] = el.value; w.appendChild(el); body.appendChild(w);
+        body.innerHTML = "";
+        body.appendChild(mkDiv("color:#cdd;font-size:12px;margin-bottom:12px;", app.desc));
+        (app.inputs || []).forEach(function (inp) {
+            var w = mkDiv("margin-bottom:12px;");
+            w.appendChild(mkDiv("font-size:12px;color:#9cf;margin-bottom:4px;", inp.label));
+            var el = MD.createElement("input"); el.placeholder = inp.ph || "";
+            el.style.cssText = "width:100%;box-sizing:border-box;padding:8px;background:rgba(20,24,34,.85);border:1px solid #2e3646;border-radius:8px;color:#eee;font-size:13px;";
+            el.addEventListener("input", function () { values[inp.key] = el.value; });
+            w.appendChild(el); body.appendChild(w);
         });
-        (app.options || []).forEach(opt => {
-            const w = document.createElement("div"); w.style.marginBottom = "12px";
-            w.innerHTML = `<div style="font-size:12px;color:#9cf;margin-bottom:4px;">${opt.label}</div>`;
-            const row = document.createElement("div"); row.style.cssText = "display:flex;flex-wrap:wrap;gap:6px;";
-            opt.choices.forEach(c => {
-                const chip = document.createElement("div"); chip.innerText = c;
-                chip.style.cssText = "padding:6px 10px;background:rgba(20,24,34,.8);border:1px solid #2e3646;border-radius:14px;font-size:12px;cursor:pointer;";
-                chip.onclick = () => { values[opt.key] = c; row.querySelectorAll("div").forEach(x => { x.style.background = "rgba(20,24,34,.8)"; x.style.borderColor = "#2e3646"; }); chip.style.background = "#2a5"; chip.style.borderColor = "#3c7"; };
+        (app.options || []).forEach(function (opt) {
+            var w = mkDiv("margin-bottom:12px;");
+            w.appendChild(mkDiv("font-size:12px;color:#9cf;margin-bottom:4px;", opt.label));
+            var row = mkDiv("display:flex;flex-wrap:wrap;gap:6px;");
+            opt.choices.forEach(function (c) {
+                var chip = mkDiv("padding:6px 10px;background:rgba(20,24,34,.85);border:1px solid #2e3646;border-radius:14px;font-size:12px;cursor:pointer;", c);
+                chip.addEventListener("click", function () {
+                    values[opt.key] = c;
+                    [].forEach.call(row.children, function (x) { x.style.background = "rgba(20,24,34,.85)"; x.style.borderColor = "#2e3646"; });
+                    chip.style.background = "#2a5"; chip.style.borderColor = "#3c7";
+                });
                 row.appendChild(chip);
             });
             w.appendChild(row); body.appendChild(w);
         });
-        const submit = document.createElement("div"); submit.innerText = "✅ 提交并执行";
-        submit.style.cssText = "margin-top:16px;padding:12px;background:#4488ff;color:#fff;text-align:center;border-radius:10px;font-size:14px;cursor:pointer;font-weight:bold;";
-        submit.onclick = () => { if (sendTrigger(app.build(values))) renderResult(true); };
+        var submit = mkDiv("margin-top:16px;padding:12px;background:#4488ff;color:#fff;text-align:center;border-radius:10px;font-size:14px;cursor:pointer;font-weight:bold;", "✅ 提交并执行");
+        submit.addEventListener("click", function () { if (sendTrigger(app.build(values))) renderResult(true); });
         body.appendChild(submit);
     }
+
     function renderResult(waiting) {
         resultMode = true;
         panel.querySelector("#uapp-title").innerText = "📺 界面显示";
         panel.querySelector("#uapp-back").style.display = "block";
         body.innerHTML = "";
-        const pre = document.createElement("pre"); pre.id = "uapp-result";
+        var pre = MD.createElement("pre"); pre.id = "uapp-result";
         pre.style.cssText = "white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.5;background:rgba(0,0,0,.4);padding:10px;border-radius:10px;margin:0 0 10px;color:#e6e6e6;";
-        const txt = getLastBotText();
+        var txt = getLastBotText();
         pre.innerText = waiting ? "⏳ 正在生成界面，请稍候…" : (txt || "暂无内容，先在功能里提交一次吧~");
         body.appendChild(pre);
-        const bar = document.createElement("div"); bar.style.cssText = "display:grid;grid-template-columns:1fr 1fr;gap:8px;";
-        const mk = (label, cb, color) => { const b = document.createElement("div"); b.innerText = label; b.style.cssText = `padding:10px;text-align:center;border-radius:10px;font-size:13px;cursor:pointer;background:${color||"rgba(40,48,64,.85)"};color:#fff;`; b.onclick = cb; return b; };
-        bar.appendChild(mk("🏠 返回主界面", () => { sendTrigger("返回主界面"); renderHome(); }, "#4488ff"));
-        bar.appendChild(mk("⭐ 收藏", () => { addFav(document.getElementById("uapp-result").innerText); alert("已收藏"); }));
-        bar.appendChild(mk("💾 下载", () => { const t = document.getElementById("uapp-result").innerText; const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([t], { type: "text/plain" })); a.download = "通用APP界面_" + Date.now() + ".txt"; a.click(); }));
-        bar.appendChild(mk("📋 复制", () => { navigator.clipboard?.writeText(document.getElementById("uapp-result").innerText); alert("已复制"); }));
+        var bar = mkDiv("display:grid;grid-template-columns:1fr 1fr;gap:8px;");
+        function mkBtn(label, cb, color) {
+            var b = mkDiv("padding:10px;text-align:center;border-radius:10px;font-size:13px;cursor:pointer;color:#fff;background:" + (color || "rgba(40,48,64,.9)") + ";", label);
+            b.addEventListener("click", cb); return b;
+        }
+        bar.appendChild(mkBtn("🏠 返回主界面", function () { sendTrigger("返回主界面"); renderHome(); }, "#4488ff"));
+        bar.appendChild(mkBtn("⭐ 收藏", function () { addFav(MD.getElementById("uapp-result").innerText); try { MW.alert("已收藏"); } catch (e) {} }));
+        bar.appendChild(mkBtn("💾 下载", function () {
+            var t = MD.getElementById("uapp-result").innerText;
+            var a = MD.createElement("a");
+            a.href = MW.URL.createObjectURL(new MW.Blob([t], { type: "text/plain" }));
+            a.download = "通用APP界面_" + Date.now() + ".txt"; a.click();
+        }));
+        bar.appendChild(mkBtn("📋 复制", function () {
+            var t = MD.getElementById("uapp-result").innerText;
+            try { (MW.navigator.clipboard || navigator.clipboard).writeText(t); MW.alert("已复制"); } catch (e) { try { MW.alert("复制失败，请手动选择"); } catch (e2) {} }
+        }));
         body.appendChild(bar);
         if (mo) mo.disconnect();
-        const chat = document.querySelector("#chat");
-        if (chat) { mo = new MutationObserver(() => { if (!resultMode) return; const p = document.getElementById("uapp-result"); const t = getLastBotText(); if (p && t) p.innerText = t; }); mo.observe(chat, { childList: true, subtree: true, characterData: true }); }
+        var chat = MD.querySelector("#chat");
+        if (chat) {
+            mo = new MW.MutationObserver(function () {
+                if (!resultMode) return;
+                var p = MD.getElementById("uapp-result"); var t = getLastBotText();
+                if (p && t) p.innerText = t;
+            });
+            mo.observe(chat, { childList: true, subtree: true, characterData: true });
+        }
     }
+
     function renderSettings() {
         resultMode = false;
         panel.querySelector("#uapp-title").innerText = "⚙️ 设置";
         panel.querySelector("#uapp-back").style.display = "block";
-        body.innerHTML = `<div style="font-size:13px;color:#9cf;margin-bottom:8px;">🖼 壁纸设置</div>`;
-        const w1 = document.createElement("div"); w1.style.marginBottom = "10px";
-        w1.innerHTML = `<div style="font-size:12px;color:#cdd;margin-bottom:4px;">方式一：粘贴图床直链</div>`;
-        const inp = document.createElement("input"); inp.placeholder = "https://图床/xxx.jpg";
-        inp.value = getWallpaper().startsWith("data:") ? "" : getWallpaper();
-        inp.style.cssText = "width:100%;box-sizing:border-box;padding:8px;background:rgba(20,24,34,.8);border:1px solid #2e3646;border-radius:8px;color:#eee;font-size:12px;";
+        body.innerHTML = "";
+        body.appendChild(mkDiv("font-size:13px;color:#9cf;margin-bottom:8px;", "🖼 壁纸设置"));
+        var w1 = mkDiv("margin-bottom:10px;");
+        w1.appendChild(mkDiv("font-size:12px;color:#cdd;margin-bottom:4px;", "方式一：粘贴图床直链"));
+        var inp = MD.createElement("input"); inp.placeholder = "https://图床/xxx.jpg";
+        inp.value = getWallpaper().indexOf("data:") === 0 ? "" : getWallpaper();
+        inp.style.cssText = "width:100%;box-sizing:border-box;padding:8px;background:rgba(20,24,34,.85);border:1px solid #2e3646;border-radius:8px;color:#eee;font-size:12px;";
         w1.appendChild(inp);
-        const al = document.createElement("div"); al.innerText = "应用链接壁纸";
-        al.style.cssText = "margin-top:6px;padding:8px;text-align:center;background:#4488ff;border-radius:8px;font-size:13px;cursor:pointer;";
-        al.onclick = () => { const v = inp.value.trim(); if (!v) return alert("请先粘贴链接"); setWallpaper(v); applyBg(); alert("已应用"); };
+        var al = mkDiv("margin-top:6px;padding:8px;text-align:center;background:#4488ff;border-radius:8px;font-size:13px;cursor:pointer;", "应用链接壁纸");
+        al.addEventListener("click", function () { var v = inp.value.trim(); if (!v) { try { MW.alert("请先粘贴链接"); } catch (e) {} return; } setWallpaper(v); applyBg(); try { MW.alert("已应用"); } catch (e) {} });
         w1.appendChild(al); body.appendChild(w1);
-        const w2 = document.createElement("div");
-        w2.innerHTML = `<div style="font-size:12px;color:#cdd;margin:8px 0 4px;">方式二：选择本地图片</div>`;
-        const file = document.createElement("input"); file.type = "file"; file.accept = "image/*"; file.style.cssText = "width:100%;font-size:12px;color:#ccc;";
-        file.onchange = () => { const f = file.files[0]; if (!f) return; if (f.size > 2.5 * 1024 * 1024) return alert("图片过大(<2.5MB)"); const r = new FileReader(); r.onload = () => { setWallpaper(r.result); applyBg(); alert("已应用"); }; r.readAsDataURL(f); };
-        w2.appendChild(file); body.appendChild(w2);
-        const reset = document.createElement("div"); reset.innerText = "↩️ 恢复默认壁纸";
-        reset.style.cssText = "margin-top:14px;padding:10px;text-align:center;background:rgba(40,48,64,.85);border-radius:8px;font-size:13px;cursor:pointer;";
-        reset.onclick = () => { setWallpaper(""); applyBg(); renderSettings(); };
-        body.appendChild(reset);
-    }
-
-    console.log("✅ 通用APP插件已加载：右下角📱 或点「手机」按钮均可打开");
-})();
+        var w2 = mkDiv("");
+        w2.appendChild(mkDiv("font-size:12px;color:#cdd;margin:8px 0 4px;", "方式二：选择本地图片"));
+        var file = MD.createElement("input"); file.ty
